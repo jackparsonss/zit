@@ -1,8 +1,20 @@
 const build_options = @import("build_options");
+const logger = @import("common").logger(.cli);
 const std = @import("std");
+
+const init = @import("commands/init.zig");
 
 const Command = enum {
     version,
+    init,
+
+    pub fn run(self: Command) !void {
+        logger.debug("Running command: {s}", .{@tagName(self)});
+        switch (self) {
+            .version => std.debug.print("Version: {s}\n", .{build_options.version}),
+            .init => try init.run(),
+        }
+    }
 };
 
 pub fn parse(args: []const []const u8) !void {
@@ -18,7 +30,5 @@ pub fn parse(args: []const []const u8) !void {
         return;
     }
 
-    switch (cmd.?) {
-        .version => std.debug.print("Version: {s}\n", .{build_options.version}),
-    }
+    try cmd.?.run();
 }
