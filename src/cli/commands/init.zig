@@ -1,1 +1,3 @@
-pub fn run() !void {}
+const Context = @import("../context.zig");
+
+pub fn run(_: Context) !void {}
