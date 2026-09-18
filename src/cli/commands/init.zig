@@ -1,6 +1,7 @@
 const std = @import("std");
+
 const constants = @import("common").constants;
-const logger = @import("common").logger(.cli);
+const logger = @import("common").logger;
 
 const Context = @import("../context.zig");
 
