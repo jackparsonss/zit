@@ -21,5 +21,5 @@ pub fn run(ctx: Context, args: []const []const u8) !void {
     const hash = try id.format(ctx.allocator);
     defer ctx.allocator.free(hash);
 
-    std.debug.print("{s}\n", .{hash});
+    try logger.log(ctx.io, "{s}\n", .{hash});
 }
