@@ -9,16 +9,16 @@ const Command = enum {
     version,
     init,
 
-    pub fn run(self: Command, ctx: Context) void {
+    pub fn run(self: Command, ctx: Context) !void {
         logger.debug("Running command: {s}", .{@tagName(self)});
         switch (self) {
             .version => std.debug.print("Version: {s}\n", .{build_options.version}),
-            .init => init.run(ctx),
+            .init => try init.run(ctx),
         }
     }
 };
 
-pub fn parse(args: []const []const u8, ctx: Context) void {
+pub fn parse(args: []const []const u8, ctx: Context) !void {
     if (args.len == 0) {
         std.debug.print("No arguments provided\n", .{});
         return;
@@ -31,5 +31,5 @@ pub fn parse(args: []const []const u8, ctx: Context) void {
         return;
     }
 
-    cmd.?.run(ctx);
+    try cmd.?.run(ctx);
 }
