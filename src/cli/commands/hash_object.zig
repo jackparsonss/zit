@@ -74,7 +74,6 @@ pub fn writeObject(ctx: Context, hash: []const u8, object: obj.Object) !void {
     }
 
     var file = try base_dir.createFileAtomic(ctx.io, obj_path, .{});
-    defer file.deinit(ctx.io);
 
     var file_buf: [4096]u8 = undefined;
     var file_writer = file.file.writer(ctx.io, &file_buf);
@@ -92,5 +91,5 @@ pub fn writeObject(ctx: Context, hash: []const u8, object: obj.Object) !void {
     try z.finish();
     try writer.flush();
 
-    try file.link(ctx.io);
+    try file.replace(ctx.io);
 }
