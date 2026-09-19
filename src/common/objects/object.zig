@@ -28,7 +28,7 @@ pub const ObjectId = struct {
 pub const Object = union(enum) {
     blob: Blob,
 
-    fn get_header(self: Object, allocator: std.mem.Allocator) ![]const u8 {
+    pub fn get_header(self: Object, allocator: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .blob => |b| b.header(allocator),
         };
