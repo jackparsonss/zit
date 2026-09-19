@@ -28,6 +28,20 @@ pub const ObjectId = struct {
 pub const Object = union(enum) {
     blob: Blob,
 
+    pub fn initFromBytes(bytes: []const u8) !Object {
+        const type_idx = std.mem.indexOfScalar(u8, bytes, ' ');
+        if (type_idx == null) {
+            return error.InvalidObjectHeader;
+        }
+
+        const type_name = bytes[0..type_idx.?];
+        if (std.mem.eql(u8, type_name, "blob")) {
+            return .{ .blob = try Blob.initFromBytes(bytes[type_idx.? + 1 ..]) };
+        }
+
+        return error.UnsupportedObjectType;
+    }
+
     pub fn get_header(self: Object, allocator: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .blob => |b| b.header(allocator),
@@ -39,5 +53,23 @@ pub const Object = union(enum) {
         defer allocator.free(header);
 
         return try ObjectId.init(allocator, header);
+    }
+
+    pub fn get_type(self: Object) []const u8 {
+        return switch (self) {
+            .blob => "blob",
+        };
+    }
+
+    pub fn get_size(self: Object) usize {
+        return switch (self) {
+            .blob => |b| b.file_content.len,
+        };
+    }
+
+    pub fn get_content(self: Object) []const u8 {
+        return switch (self) {
+            .blob => |b| b.file_content,
+        };
     }
 };

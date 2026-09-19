@@ -91,5 +91,5 @@ pub fn writeObject(ctx: Context, hash: []const u8, object: obj.Object) !void {
     try z.finish();
     try writer.flush();
 
-    try file.replace(ctx.io);
+    try file.link(ctx.io);
 }
