@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const Blob = @import("blob.zig");
+pub const Tree = @import("tree.zig");
 
 pub const ObjectId = struct {
     id: []const u8,
@@ -27,6 +28,7 @@ pub const ObjectId = struct {
 
 pub const Object = union(enum) {
     blob: Blob,
+    tree: Tree,
 
     pub fn initFromBytes(bytes: []const u8) !Object {
         const type_idx = std.mem.indexOfScalar(u8, bytes, ' ');
@@ -45,6 +47,7 @@ pub const Object = union(enum) {
     pub fn get_header(self: Object, allocator: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .blob => |b| b.header(allocator),
+            .tree => error.TreeUnimplmeneted,
         };
     }
 
@@ -58,18 +61,21 @@ pub const Object = union(enum) {
     pub fn get_type(self: Object) []const u8 {
         return switch (self) {
             .blob => "blob",
+            .tree => "tree",
         };
     }
 
     pub fn get_size(self: Object) usize {
         return switch (self) {
             .blob => |b| b.file_content.len,
+            .tree => error.TreeUnimplmeneted,
         };
     }
 
     pub fn get_content(self: Object) []const u8 {
         return switch (self) {
             .blob => |b| b.file_content,
+            .tree => error.TreeUnimplmeneted,
         };
     }
 };
