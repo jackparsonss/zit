@@ -1,17 +1,81 @@
 const std = @import("std");
 
 const ObjectId = @import("object.zig").ObjectId;
+const Object = @import("object.zig").Object;
+const Blob = @import("blob.zig");
 
 const Tree = @This();
 
 entries: []Entry,
 
-pub fn initFromDir(io: std.Io, dir: std.Io.Dir) !Tree {
-    _ = io;
-    _ = dir;
+pub fn initFromDir(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir) !?Tree {
+    var entries: std.ArrayList(Entry) = .empty;
+    defer entries.deinit(allocator);
+
+    var iter = dir.iterate();
+    while (try iter.next(io)) |entry| {
+        // TODO: pick proper mode
+        var mode: Mode = .file;
+
+        var obj: Object = undefined;
+        if (entry.kind == .directory) {
+            const sub_dir = try dir.openDir(io, entry.name, .{ .iterate = true });
+            const sub_tree = try initFromDir(allocator, io, sub_dir);
+            if (sub_tree == null) {
+                continue;
+            }
+
+            obj = .{ .tree = sub_tree };
+            mode = .directory;
+        } else {
+            obj = .{ .blob = try Blob.init(allocator, io, entry.name) };
+        }
+
+        const blob_header = try obj.get_header(allocator);
+        const id = try ObjectId.init(allocator, blob_header);
+
+        try entries.append(allocator, .{
+            .name = entry.name,
+            .mode = mode,
+            .id = id,
+        });
+    }
+
+    if (entries.items.len == 0) {
+        return null;
+    }
+
+    const ctx = Context{ .allocator = allocator };
+    std.mem.sort(Entry, entries.items, ctx, sort_entry);
+
+    return .{
+        .entries = entries.toOwnedSlice(allocator),
+    };
 }
 
-pub fn header(self: Tree, allocator: std.mem.Allocator) ![]const u8 {}
+const Context = struct {
+    allocator: std.mem.Allocator,
+};
+
+// follow git's pattern of directories sorting based on name with an appending "/"
+fn sort_entry(ctx: Context, a: Entry, b: Entry) bool {
+    const a_name = if (a.mode == .directory) std.mem.concat(ctx.allocator, u8, &.{ a.name, "/" }) else a.name;
+    const b_name = if (b.mode == .directory) std.mem.concat(ctx.allocator, u8, &.{ b.name, "/" }) else b.name;
+    return std.mem.lessThan(u8, a_name, b_name);
+}
+
+pub fn header(self: Tree, allocator: std.mem.Allocator) ![]const u8 {
+    var entries: std.ArrayList(u8) = .empty;
+    defer entries.deinit(allocator);
+
+    for (self.entries) |entry| {
+        const bytes = try entry.toBytes(allocator);
+        try entries.appendSlice(allocator, bytes);
+        allocator.free(bytes);
+    }
+
+    return try std.fmt.allocPrint(allocator, "tree {d}\x00{s}", .{ entries.items.len, entries.items });
+}
 
 const Mode = enum(u32) {
     file = 100644,
@@ -79,5 +143,12 @@ const Entry = struct {
             .name = name,
             .object_id = object_id,
         };
+    }
+
+    pub fn toBytes(self: Entry, allocator: std.mem.Allocator) ![]const u8 {
+        const mode = self.mode.str();
+        const id = self.object_id.id;
+
+        return try std.fmt.allocPrint(allocator, "{s} {s}\x00{s}", .{ mode, self.name, id });
     }
 };

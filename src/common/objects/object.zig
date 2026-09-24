@@ -47,7 +47,7 @@ pub const Object = union(enum) {
     pub fn get_header(self: Object, allocator: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .blob => |b| b.header(allocator),
-            .tree => error.TreeUnimplmeneted,
+            .tree => |t| t.header(allocator),
         };
     }
 
@@ -68,14 +68,14 @@ pub const Object = union(enum) {
     pub fn get_size(self: Object) usize {
         return switch (self) {
             .blob => |b| b.file_content.len,
-            .tree => error.TreeUnimplmeneted,
+            .tree => 0,
         };
     }
 
     pub fn get_content(self: Object) []const u8 {
         return switch (self) {
             .blob => |b| b.file_content,
-            .tree => error.TreeUnimplmeneted,
+            .tree => "",
         };
     }
 };
