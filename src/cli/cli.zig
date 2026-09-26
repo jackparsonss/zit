@@ -4,12 +4,14 @@ const std = @import("std");
 const logger = @import("common").logger;
 
 const hash_object = @import("commands/hash_object.zig");
+const write_tree = @import("commands/write_tree.zig");
 const cat_file = @import("commands/cat_file.zig");
 const init = @import("commands/init.zig");
 const Context = @import("context.zig");
 
 const Command = enum {
     hash_object,
+    write_tree,
     cat_file,
     version,
     init,
@@ -18,6 +20,7 @@ const Command = enum {
         logger.debug("Running command: {s}", .{@tagName(self)});
         switch (self) {
             .hash_object => try hash_object.run(ctx, args),
+            .write_tree => try write_tree.run(ctx, args),
             .cat_file => try cat_file.run(ctx, args),
             .version => std.debug.print("Version: {s}\n", .{build_options.version}),
             .init => try init.run(ctx),

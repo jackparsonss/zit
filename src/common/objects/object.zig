@@ -72,10 +72,10 @@ pub const Object = union(enum) {
         };
     }
 
-    pub fn get_content(self: Object) []const u8 {
+    pub fn get_content(self: Object, allocator: std.mem.Allocator) ![]const u8 {
         return switch (self) {
             .blob => |b| b.file_content,
-            .tree => "",
+            .tree => |t| t.content(allocator),
         };
     }
 };

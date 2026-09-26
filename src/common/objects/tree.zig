@@ -2,6 +2,7 @@ const std = @import("std");
 
 const ObjectId = @import("object.zig").ObjectId;
 const Object = @import("object.zig").Object;
+const logger = @import("../log.zig");
 const Blob = @import("blob.zig");
 
 const Tree = @This();
@@ -20,24 +21,26 @@ pub fn initFromDir(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir) !?
         var obj: Object = undefined;
         if (entry.kind == .directory) {
             const sub_dir = try dir.openDir(io, entry.name, .{ .iterate = true });
+            defer sub_dir.close(io);
+
             const sub_tree = try initFromDir(allocator, io, sub_dir);
             if (sub_tree == null) {
                 continue;
             }
 
-            obj = .{ .tree = sub_tree };
+            obj = .{ .tree = sub_tree.? };
             mode = .directory;
         } else {
-            obj = .{ .blob = try Blob.init(allocator, io, entry.name) };
+            obj = .{ .blob = try Blob.initFromDir(allocator, io, dir, entry.name) };
         }
 
         const blob_header = try obj.get_header(allocator);
         const id = try ObjectId.init(allocator, blob_header);
 
         try entries.append(allocator, .{
-            .name = entry.name,
+            .name = try allocator.dupe(u8, entry.name),
+            .object_id = id,
             .mode = mode,
-            .id = id,
         });
     }
 
@@ -49,7 +52,7 @@ pub fn initFromDir(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir) !?
     std.mem.sort(Entry, entries.items, ctx, sort_entry);
 
     return .{
-        .entries = entries.toOwnedSlice(allocator),
+        .entries = try entries.toOwnedSlice(allocator),
     };
 }
 
@@ -59,8 +62,12 @@ const Context = struct {
 
 // follow git's pattern of directories sorting based on name with an appending "/"
 fn sort_entry(ctx: Context, a: Entry, b: Entry) bool {
-    const a_name = if (a.mode == .directory) std.mem.concat(ctx.allocator, u8, &.{ a.name, "/" }) else a.name;
-    const b_name = if (b.mode == .directory) std.mem.concat(ctx.allocator, u8, &.{ b.name, "/" }) else b.name;
+    const a_name = if (a.mode == .directory) std.mem.concat(ctx.allocator, u8, &.{ a.name, "/" }) catch {
+        return false;
+    } else a.name;
+    const b_name = if (b.mode == .directory) std.mem.concat(ctx.allocator, u8, &.{ b.name, "/" }) catch {
+        return false;
+    } else b.name;
     return std.mem.lessThan(u8, a_name, b_name);
 }
 
@@ -77,6 +84,19 @@ pub fn header(self: Tree, allocator: std.mem.Allocator) ![]const u8 {
     return try std.fmt.allocPrint(allocator, "tree {d}\x00{s}", .{ entries.items.len, entries.items });
 }
 
+pub fn content(self: Tree, allocator: std.mem.Allocator) ![]const u8 {
+    var result: std.ArrayList(u8) = .empty;
+    defer result.deinit(allocator);
+
+    for (self.entries) |entry| {
+        const bytes = try entry.toBytes(allocator);
+        try result.appendSlice(allocator, bytes);
+        allocator.free(bytes);
+    }
+
+    return result.toOwnedSlice(allocator);
+}
+
 const Mode = enum(u32) {
     file = 100644,
     symlink = 120000,
@@ -90,7 +110,7 @@ const Mode = enum(u32) {
             return .file;
         } else if (std.mem.eql(u8, mode_str, "120000")) {
             return .symlink;
-        } else if (std.mem.eql(u8, mode_str, "040000")) {
+        } else if (std.mem.eql(u8, mode_str, "40000")) {
             return .directory;
         } else if (std.mem.eql(u8, mode_str, "160000")) {
             return .submodule;

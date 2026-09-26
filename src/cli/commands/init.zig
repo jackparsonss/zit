@@ -32,5 +32,5 @@ pub fn run(ctx: Context) !void {
     try writer.writeAll("ref: refs/head/main\n");
     try writer.flush();
 
-    try logger.log(ctx.io, "Initialized empty {s} repository", .{constants.ROOT_DIR});
+    try logger.log(ctx.io, "Initialized empty {s} repository\n", .{constants.ROOT_DIR});
 }
