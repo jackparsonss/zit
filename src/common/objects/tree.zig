@@ -15,7 +15,10 @@ pub fn initFromDir(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir) !?
 
     var iter = dir.iterate();
     while (try iter.next(io)) |entry| {
-        // TODO: pick proper mode
+        if (std.mem.eql(u8, entry.name, ".zit") or std.mem.eql(u8, entry.name, ".git")) {
+            continue;
+        }
+
         var mode: Mode = .file;
 
         var obj: Object = undefined;
@@ -30,8 +33,26 @@ pub fn initFromDir(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir) !?
 
             obj = .{ .tree = sub_tree.? };
             mode = .directory;
+        } else if (entry.kind == .sym_link) {
+            mode = .symlink;
+            var buffer: [std.fs.max_path_bytes]u8 = undefined;
+            const target_size = try dir.readLink(io, entry.name, &buffer);
+            obj = .{ .blob = Blob{ .file_content = try allocator.dupe(u8, buffer[0..target_size]) } };
         } else {
-            obj = .{ .blob = try Blob.initFromDir(allocator, io, dir, entry.name) };
+            const file = try dir.openFile(io, entry.name, .{ .follow_symlinks = false });
+            defer file.close(io);
+
+            var reader_handle = file.reader(io, &.{});
+            const reader = &reader_handle.interface;
+
+            const stat = try file.stat(io);
+            const md = stat.permissions.toMode();
+            if (md & 0o100 != 0) {
+                mode = .executable;
+            }
+
+            const file_content = try reader.allocRemaining(allocator, .unlimited);
+            obj = .{ .blob = Blob{ .file_content = file_content } };
         }
 
         const blob_header = try obj.get_header(allocator);
@@ -47,28 +68,33 @@ pub fn initFromDir(allocator: std.mem.Allocator, io: std.Io, dir: std.Io.Dir) !?
     if (entries.items.len == 0) {
         return null;
     }
-
-    const ctx = Context{ .allocator = allocator };
-    std.mem.sort(Entry, entries.items, ctx, sort_entry);
+    std.mem.sort(Entry, entries.items, {}, sort_entry);
 
     return .{
         .entries = try entries.toOwnedSlice(allocator),
     };
 }
 
-const Context = struct {
-    allocator: std.mem.Allocator,
-};
+pub fn initFromBytes(allocator: std.mem.Allocator, bytes: []const u8) !Tree {
+    const entries: std.ArrayList(Entry) = .empty;
+    var rest = bytes;
+    while (rest.len > 0) {
+        try entries.append(allocator, try Entry.parse(&rest));
+    }
 
-// follow git's pattern of directories sorting based on name with an appending "/"
-fn sort_entry(ctx: Context, a: Entry, b: Entry) bool {
-    const a_name = if (a.mode == .directory) std.mem.concat(ctx.allocator, u8, &.{ a.name, "/" }) catch {
-        return false;
-    } else a.name;
-    const b_name = if (b.mode == .directory) std.mem.concat(ctx.allocator, u8, &.{ b.name, "/" }) catch {
-        return false;
-    } else b.name;
-    return std.mem.lessThan(u8, a_name, b_name);
+    return .{
+        .entries = try entries.toOwnedSlice(allocator),
+    };
+}
+
+fn sort_entry(_: void, a: Entry, b: Entry) bool {
+    const i = std.mem.indexOfDiff(u8, a.name, b.name) orelse return false;
+    return sort_byte(a, i) < sort_byte(b, i);
+}
+
+fn sort_byte(entry: Entry, i: usize) u8 {
+    if (i < entry.name.len) return entry.name[i];
+    return if (entry.mode == .directory) '/' else 0;
 }
 
 pub fn header(self: Tree, allocator: std.mem.Allocator) ![]const u8 {
@@ -104,17 +130,16 @@ const Mode = enum(u32) {
     submodule = 160000,
     executable = 100755,
 
-    pub fn parse(bytes: []const u8) !Entry {
-        const mode_str = bytes[0..5];
-        if (std.mem.eql(u8, mode_str, "100644")) {
+    pub fn parse(bytes: []const u8) !Mode {
+        if (std.mem.eql(u8, bytes, "100644")) {
             return .file;
-        } else if (std.mem.eql(u8, mode_str, "120000")) {
+        } else if (std.mem.eql(u8, bytes, "120000")) {
             return .symlink;
-        } else if (std.mem.eql(u8, mode_str, "40000")) {
+        } else if (std.mem.eql(u8, bytes, "40000")) {
             return .directory;
-        } else if (std.mem.eql(u8, mode_str, "160000")) {
+        } else if (std.mem.eql(u8, bytes, "160000")) {
             return .submodule;
-        } else if (std.mem.eql(u8, mode_str, "100755")) {
+        } else if (std.mem.eql(u8, bytes, "100755")) {
             return .executable;
         } else {
             return error.InvalidMode;
@@ -125,7 +150,7 @@ const Mode = enum(u32) {
         return switch (self) {
             .file => "100644",
             .symlink => "120000",
-            .directory => "040000",
+            .directory => "40000",
             .submodule => "160000",
             .executable => "100755",
         };
@@ -137,31 +162,26 @@ const Entry = struct {
     name: []const u8,
     object_id: ObjectId,
 
-    pub fn parse(bytes: []const u8) !Entry {
-        const mode_idx = std.mem.indexOfScalar(u8, bytes, ' ');
-        if (mode_idx == null) {
-            return error.InvalidMode;
-        }
+    pub fn parse(bytes: *[]const u8) !Entry {
+        const buf = bytes.*;
 
-        const mode_str = bytes[0..mode_idx.?];
-        const mode = try Mode.parse(mode_str);
+        const mode_idx = std.mem.indexOfScalar(u8, buf, ' ') orelse return error.InvalidMode;
+        const mode = try Mode.parse(buf[0..mode_idx]);
 
-        const name_idx = std.mem.indexOfScalar(u8, bytes[mode_idx.?..], '\x00');
-        if (name_idx == null) {
-            return error.InvalidName;
-        }
-        const name = bytes[mode_idx.?..name_idx.?];
+        const name_idx = std.mem.indexOfScalarPos(u8, buf, mode_idx + 1, '\x00') orelse return error.InvalidName;
+        const name = buf[mode_idx + 1 .. name_idx];
 
-        if (bytes[name_idx.?..].len != 20) {
+        const id_start = name_idx + 1;
+        const id_end = id_start + 20;
+        if (buf.len < id_end) {
             return error.InvalidObjectId;
         }
 
-        const object_id = ObjectId{ .id = bytes[name_idx.?..] };
-
+        bytes.* = buf[id_end..];
         return .{
             .mode = mode,
             .name = name,
-            .object_id = object_id,
+            .object_id = ObjectId{ .id = buf[id_start..id_end] },
         };
     }
 

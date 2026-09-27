@@ -38,7 +38,7 @@ pub fn run(ctx: Context, args: []const []const u8) !void {
     if (parsed_args.t_flag) {
         try logger.log(ctx.io, "{s}\n", .{object.get_type()});
     } else if (parsed_args.s_flag) {
-        try logger.log(ctx.io, "{}\n", .{object.get_size()});
+        try logger.log(ctx.io, "{}\n", .{try object.get_size(ctx.allocator)});
     } else if (parsed_args.p_flag) {
         try logger.log(ctx.io, "{s}", .{try object.get_content(ctx.allocator)});
     }
